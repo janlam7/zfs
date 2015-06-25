@@ -68,7 +68,7 @@ elif type einfo > /dev/null 2>&1 ; then
 	# Gentoo functions
 	zfs_log_begin_msg() { ebegin "$1"; }
 	zfs_log_end_msg() { eend "$1"; }
-	zfs_log_failure_msg() { eerror "$1"; }
+	zfs_log_failure_msg() { eend "$1"; }
 #	zfs_log_progress_msg() { echo -n "$1"; }
 	zfs_log_progress_msg() { echo -n; }
 else
