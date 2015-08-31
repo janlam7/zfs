@@ -160,9 +160,19 @@ const struct inode_operations zpl_ops_root = {
 static struct vfsmount *
 zpl_snapdir_automount(struct path *path)
 {
+	struct dentry *dentry = path->dentry;
 	int error;
 
+	/*
+	 * We must briefly disable automounts for this dentry because the
+	 * user space mount utility will trigger another lookup on this
+	 * directory.  That will result in zpl_snapdir_automount() being
+	 * called repeatedly.  The DCACHE_NEED_AUTOMOUNT flag can be
+	 * safely reset once the mount completes.
+	 */
+	dentry->d_flags &= ~DCACHE_NEED_AUTOMOUNT;
 	error = -zfsctl_mount_snapshot(path, 0);
+	dentry->d_flags |= DCACHE_NEED_AUTOMOUNT;
 	if (error)
 		return (ERR_PTR(error));
 
@@ -178,10 +188,8 @@ zpl_snapdir_automount(struct path *path)
 #endif /* HAVE_AUTOMOUNT */
 
 /*
- * Negative dentries must always be revalidated so newly created snapshots
- * can be detected and automounted.  Normal dentries should be kept because
- * as of the 3.18 kernel revaliding the mountpoint dentry will result in
- * the snapshot being immediately unmounted.
+ * Revalidate any dentry in the snapshot directory on lookup, since a snapshot
+ * having the same name have been created or destroyed since it was cached.
  */
 static int
 #ifdef HAVE_D_REVALIDATE_NAMEIDATA
@@ -190,7 +198,7 @@ zpl_snapdir_revalidate(struct dentry *dentry, struct nameidata *i)
 zpl_snapdir_revalidate(struct dentry *dentry, unsigned int flags)
 #endif
 {
-	return (!!dentry->d_inode);
+	return (0);
 }
 
 dentry_operations_t zpl_dops_snapdirs = {
@@ -237,7 +245,6 @@ zpl_snapdir_lookup(struct inode *dip, struct dentry *dentry,
 	ASSERT(error == 0 || ip == NULL);
 	d_clear_d_op(dentry);
 	d_set_d_op(dentry, &zpl_dops_snapdirs);
-	dentry->d_flags |= DCACHE_NEED_AUTOMOUNT;
 
 	return (d_splice_alias(ip, dentry));
 }
