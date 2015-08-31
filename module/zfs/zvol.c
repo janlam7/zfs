@@ -40,6 +40,7 @@
 #include <sys/dsl_dataset.h>
 #include <sys/dsl_prop.h>
 #include <sys/zap.h>
+#include <sys/zfeature.h>
 #include <sys/zil_impl.h>
 #include <sys/zio.h>
 #include <sys/zfs_rlock.h>
@@ -380,8 +381,31 @@ out:
  * Sanity check volume block size.
  */
 int
-zvol_check_volblocksize(uint64_t volblocksize)
+zvol_check_volblocksize(const char *name, uint64_t volblocksize)
 {
+	/* Record sizes above 128k need the feature to be enabled */
+	if (volblocksize > SPA_OLD_MAXBLOCKSIZE) {
+		spa_t *spa;
+		int error;
+
+		if ((error = spa_open(name, &spa, FTAG)) != 0)
+			return (error);
+
+		if (!spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_BLOCKS)) {
+			spa_close(spa, FTAG);
+			return (SET_ERROR(ENOTSUP));
+		}
+
+		/*
+		 * We don't allow setting the property above 1MB,
+		 * unless the tunable has been changed.
+		 */
+		if (volblocksize > zfs_max_recordsize)
+			return (SET_ERROR(EDOM));
+
+		spa_close(spa, FTAG);
+	}
+
 	if (volblocksize < SPA_MINBLOCKSIZE ||
 	    volblocksize > SPA_MAXBLOCKSIZE ||
 	    !ISP2(volblocksize))
@@ -1389,7 +1413,7 @@ __zvol_create_minor(const char *name, boolean_t ignore_snapdev)
 
 	set_capacity(zv->zv_disk, zv->zv_volsize >> 9);
 
-	blk_queue_max_hw_sectors(zv->zv_queue, DMU_MAX_ACCESS / 512);
+	blk_queue_max_hw_sectors(zv->zv_queue, (DMU_MAX_ACCESS / 4) >> 9);
 	blk_queue_max_segments(zv->zv_queue, UINT16_MAX);
 	blk_queue_max_segment_size(zv->zv_queue, UINT_MAX);
 	blk_queue_physical_block_size(zv->zv_queue, zv->zv_volblocksize);
@@ -1402,6 +1426,9 @@ __zvol_create_minor(const char *name, boolean_t ignore_snapdev)
 #endif
 #ifdef HAVE_BLK_QUEUE_NONROT
 	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, zv->zv_queue);
+#endif
+#ifdef QUEUE_FLAG_ADD_RANDOM
+	queue_flag_clear_unlocked(QUEUE_FLAG_ADD_RANDOM, zv->zv_queue);
 #endif
 
 	if (spa_writeable(dmu_objset_spa(os))) {
