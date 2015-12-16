@@ -237,7 +237,9 @@ zpl_snapdir_lookup(struct inode *dip, struct dentry *dentry,
 	ASSERT(error == 0 || ip == NULL);
 	d_clear_d_op(dentry);
 	d_set_d_op(dentry, &zpl_dops_snapdirs);
+#ifdef HAVE_AUTOMOUNT
 	dentry->d_flags |= DCACHE_NEED_AUTOMOUNT;
+#endif
 
 	return (d_splice_alias(ip, dentry));
 }
