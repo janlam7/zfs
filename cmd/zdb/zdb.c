@@ -1510,6 +1510,7 @@ dump_full_bpobj(bpobj_t *bpo, char *name, int indent)
 				continue;
 			}
 			dump_full_bpobj(&subbpo, "subobj", indent + 1);
+			bpobj_close(&subbpo);
 		}
 	} else {
 		(void) printf("    %*s: object %llu, %llu blkptrs, %s\n",
@@ -2488,6 +2489,9 @@ zdb_blkptr_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 	dmu_object_type_t type;
 	boolean_t is_metadata;
 
+	if (bp == NULL)
+		return (0);
+
 	if (dump_opt['b'] >= 5 && bp->blk_birth > 0) {
 		char blkbuf[BP_SPRINTF_LEN];
 		snprintf_blkptr(blkbuf, sizeof (blkbuf), bp);
@@ -2984,7 +2988,7 @@ zdb_ddt_add_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 	avl_index_t where;
 	zdb_ddt_entry_t *zdde, zdde_search;
 
-	if (BP_IS_HOLE(bp) || BP_IS_EMBEDDED(bp))
+	if (bp == NULL || BP_IS_HOLE(bp) || BP_IS_EMBEDDED(bp))
 		return (0);
 
 	if (dump_opt['S'] > 1 && zb->zb_level == ZB_ROOT_LEVEL) {
@@ -3622,7 +3626,7 @@ main(int argc, char **argv)
 	int flags = ZFS_IMPORT_MISSING_LOG;
 	int rewind = ZPOOL_NEVER_REWIND;
 	char *spa_config_path_env;
-	const char *opts = "bcdhilmMI:suCDRSAFLXevp:t:U:P";
+	const char *opts = "bcdhilmMI:suCDRSAFLXevp:t:U:PV";
 	boolean_t target_is_spa = B_TRUE;
 
 	(void) setrlimit(RLIMIT_NOFILE, &rl);
@@ -3667,7 +3671,7 @@ main(int argc, char **argv)
 			dump_opt[c]++;
 			break;
 		case 'V':
-			flags = ZFS_IMPORT_VERBATIM;
+			flags |= ZFS_IMPORT_VERBATIM;
 			break;
 		case 'I':
 			max_inflight = strtoull(optarg, NULL, 0);
