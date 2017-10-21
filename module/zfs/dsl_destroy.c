@@ -23,6 +23,7 @@
  * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2013 by Joyent, Inc. All rights reserved.
+ * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -40,6 +41,7 @@
 #include <sys/zfs_ioctl.h>
 #include <sys/dsl_deleg.h>
 #include <sys/dmu_impl.h>
+#include <sys/zvol.h>
 
 typedef struct dmu_snapshots_destroy_arg {
 	nvlist_t *dsda_snaps;
@@ -243,9 +245,6 @@ dsl_dataset_remove_clones_key(dsl_dataset_t *ds, uint64_t mintxg, dmu_tx_t *tx)
 void
 dsl_destroy_snapshot_sync_impl(dsl_dataset_t *ds, boolean_t defer, dmu_tx_t *tx)
 {
-#ifdef ZFS_DEBUG
-	int err;
-#endif
 	spa_feature_t f;
 	int after_branch_point = FALSE;
 	dsl_pool_t *dp = ds->ds_dir->dd_pool;
@@ -256,7 +255,9 @@ dsl_destroy_snapshot_sync_impl(dsl_dataset_t *ds, boolean_t defer, dmu_tx_t *tx)
 
 
 	ASSERT(RRW_WRITE_HELD(&dp->dp_config_rwlock));
+	rrw_enter(&ds->ds_bp_rwlock, RW_READER, FTAG);
 	ASSERT3U(dsl_dataset_phys(ds)->ds_bp.blk_birth, <=, tx->tx_txg);
+	rrw_exit(&ds->ds_bp_rwlock, FTAG);
 	ASSERT(refcount_is_zero(&ds->ds_longholds));
 
 	if (defer &&
@@ -441,6 +442,7 @@ dsl_destroy_snapshot_sync_impl(dsl_dataset_t *ds, boolean_t defer, dmu_tx_t *tx)
 #ifdef ZFS_DEBUG
 	{
 		uint64_t val;
+		int err;
 
 		err = dsl_dataset_snap_lookup(ds_head,
 		    ds->ds_snapname, &val);
@@ -490,6 +492,7 @@ dsl_destroy_snapshot_sync(void *arg, dmu_tx_t *tx)
 		VERIFY0(dsl_dataset_hold(dp, nvpair_name(pair), FTAG, &ds));
 
 		dsl_destroy_snapshot_sync_impl(ds, dsda->dsda_defer, tx);
+		zvol_remove_minors(dp->dp_spa, nvpair_name(pair), B_TRUE);
 		dsl_dataset_rele(ds, FTAG);
 	}
 }
@@ -595,8 +598,8 @@ old_synchronous_dataset_destroy(dsl_dataset_t *ds, dmu_tx_t *tx)
 	ka.ds = ds;
 	ka.tx = tx;
 	VERIFY0(traverse_dataset(ds,
-	    dsl_dataset_phys(ds)->ds_prev_snap_txg, TRAVERSE_POST,
-	    kill_blkptr, &ka));
+	    dsl_dataset_phys(ds)->ds_prev_snap_txg, TRAVERSE_POST |
+	    TRAVERSE_NO_DECRYPT, kill_blkptr, &ka));
 	ASSERT(!DS_UNIQUE_IS_ACCURATE(ds) ||
 	    dsl_dataset_phys(ds)->ds_unique_bytes == 0);
 }
@@ -703,6 +706,11 @@ dsl_dir_destroy_sync(uint64_t ddobj, dmu_tx_t *tx)
 	for (t = 0; t < DD_USED_NUM; t++)
 		ASSERT0(dsl_dir_phys(dd)->dd_used_breakdown[t]);
 
+	if (dd->dd_crypto_obj != 0) {
+		dsl_crypto_key_destroy_sync(dd->dd_crypto_obj, tx);
+		(void) spa_keystore_unload_wkey_impl(dp->dp_spa, dd->dd_object);
+	}
+
 	VERIFY0(zap_destroy(mos, dsl_dir_phys(dd)->dd_child_dir_zapobj, tx));
 	VERIFY0(zap_destroy(mos, dsl_dir_phys(dd)->dd_props_zapobj, tx));
 	VERIFY0(dsl_deleg_destroy(mos, dsl_dir_phys(dd)->dd_deleg_zapobj, tx));
@@ -727,7 +735,9 @@ dsl_destroy_head_sync_impl(dsl_dataset_t *ds, dmu_tx_t *tx)
 	ASSERT3U(dsl_dataset_phys(ds)->ds_num_children, <=, 1);
 	ASSERT(ds->ds_prev == NULL ||
 	    dsl_dataset_phys(ds->ds_prev)->ds_next_snap_obj != ds->ds_object);
+	rrw_enter(&ds->ds_bp_rwlock, RW_READER, FTAG);
 	ASSERT3U(dsl_dataset_phys(ds)->ds_bp.blk_birth, <=, tx->tx_txg);
+	rrw_exit(&ds->ds_bp_rwlock, FTAG);
 	ASSERT(RRW_WRITE_HELD(&dp->dp_config_rwlock));
 
 	/* We need to log before removing it from the namespace. */
@@ -818,10 +828,12 @@ dsl_destroy_head_sync_impl(dsl_dataset_t *ds, dmu_tx_t *tx)
 		ASSERT(!DS_UNIQUE_IS_ACCURATE(ds) ||
 		    dsl_dataset_phys(ds)->ds_unique_bytes == used);
 
+		rrw_enter(&ds->ds_bp_rwlock, RW_READER, FTAG);
 		bptree_add(mos, dp->dp_bptree_obj,
 		    &dsl_dataset_phys(ds)->ds_bp,
 		    dsl_dataset_phys(ds)->ds_prev_snap_txg,
 		    used, comp, uncomp, tx);
+		rrw_exit(&ds->ds_bp_rwlock, FTAG);
 		dsl_dir_diduse_space(ds->ds_dir, DD_USED_HEAD,
 		    -used, -comp, -uncomp, tx);
 		dsl_dir_diduse_space(dp->dp_free_dir, DD_USED_HEAD,
@@ -889,6 +901,7 @@ dsl_destroy_head_sync(void *arg, dmu_tx_t *tx)
 
 	VERIFY0(dsl_dataset_hold(dp, ddha->ddha_name, FTAG, &ds));
 	dsl_destroy_head_sync_impl(ds, tx);
+	zvol_remove_minors(dp->dp_spa, ddha->ddha_name, B_TRUE);
 	dsl_dataset_rele(ds, FTAG);
 }
 
@@ -943,7 +956,8 @@ dsl_destroy_head(const char *name)
 		 * remove the objects from open context so that the txg sync
 		 * is not too long.
 		 */
-		error = dmu_objset_own(name, DMU_OST_ANY, B_FALSE, FTAG, &os);
+		error = dmu_objset_own(name, DMU_OST_ANY, B_FALSE, B_FALSE,
+		    FTAG, &os);
 		if (error == 0) {
 			uint64_t obj;
 			uint64_t prev_snap_txg =
@@ -955,7 +969,7 @@ dsl_destroy_head(const char *name)
 				(void) dmu_free_long_object(os, obj);
 			/* sync out all frees */
 			txg_wait_synced(dmu_objset_pool(os), 0);
-			dmu_objset_disown(os, FTAG);
+			dmu_objset_disown(os, B_FALSE, FTAG);
 		}
 	}
 
@@ -976,9 +990,17 @@ dsl_destroy_inconsistent(const char *dsname, void *arg)
 	objset_t *os;
 
 	if (dmu_objset_hold(dsname, FTAG, &os) == 0) {
-		boolean_t inconsistent = DS_IS_INCONSISTENT(dmu_objset_ds(os));
+		boolean_t need_destroy = DS_IS_INCONSISTENT(dmu_objset_ds(os));
+
+		/*
+		 * If the dataset is inconsistent because a resumable receive
+		 * has failed, then do not destroy it.
+		 */
+		if (dsl_dataset_has_resume_receive_state(dmu_objset_ds(os)))
+			need_destroy = B_FALSE;
+
 		dmu_objset_rele(os, FTAG);
-		if (inconsistent)
+		if (need_destroy)
 			(void) dsl_destroy_head(dsname);
 	}
 	return (0);

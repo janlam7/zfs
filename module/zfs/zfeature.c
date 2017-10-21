@@ -277,7 +277,8 @@ feature_get_refcount_from_disk(spa_t *spa, zfeature_info_t *feature,
 
 
 static int
-feature_get_enabled_txg(spa_t *spa, zfeature_info_t *feature, uint64_t *res) {
+feature_get_enabled_txg(spa_t *spa, zfeature_info_t *feature, uint64_t *res)
+{
 	ASSERTV(uint64_t enabled_txg_obj = spa->spa_feat_enabled_txg_obj);
 
 	ASSERT(zfeature_depends_on(feature->fi_feature,
@@ -423,8 +424,8 @@ spa_feature_create_zap_objects(spa_t *spa, dmu_tx_t *tx)
 	 * We create feature flags ZAP objects in two instances: during pool
 	 * creation and during pool upgrade.
 	 */
-	ASSERT(dsl_pool_sync_context(spa_get_dsl(spa)) || (!spa->spa_sync_on &&
-	    tx->tx_txg == TXG_INITIAL));
+	ASSERT((!spa->spa_sync_on && tx->tx_txg == TXG_INITIAL) ||
+	    dsl_pool_sync_context(spa_get_dsl(spa)));
 
 	spa->spa_feat_for_read_obj = zap_create_link(spa->spa_meta_objset,
 	    DMU_OTN_ZAP_METADATA, DMU_POOL_DIRECTORY_OBJECT,
@@ -500,7 +501,8 @@ spa_feature_is_active(spa_t *spa, spa_feature_t fid)
  * Returns B_FALSE otherwise (i.e. if the feature is not enabled).
  */
 boolean_t
-spa_feature_enabled_txg(spa_t *spa, spa_feature_t fid, uint64_t *txg) {
+spa_feature_enabled_txg(spa_t *spa, spa_feature_t fid, uint64_t *txg)
+{
 	int err;
 
 	ASSERT(VALID_FEATURE_FID(fid));
