@@ -891,8 +891,8 @@ Default value: \fB0\fR% (disabled).
 .ad
 .RS 12n
 The target number of bytes the ARC should leave as free memory on the system.
-Defaults to the larger of 1/64 of physical memory or 512K.  Setting this
-option to a non-zero value will override the default.
+Defaults to the larger of 1/64 of physical memory or 512K but may be
+overridden by setting \fBzfs_arc_lotsfree\fR to a specific value.
 .sp
 Default value: \fB0\fR.
 .RE
