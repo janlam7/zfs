@@ -48,6 +48,7 @@ AC_CONFIG_HEADERS([zfs_config.h], [
 AC_PROG_INSTALL
 AC_PROG_CC
 AC_PROG_LIBTOOL
+PKG_PROG_PKG_CONFIG
 AM_PROG_AS
 AM_PROG_CC_C_O
 AX_CODE_COVERAGE
@@ -93,6 +94,7 @@ AC_CONFIG_FILES([
 	lib/libefi/Makefile
 	lib/libicp/Makefile
 	lib/libnvpair/Makefile
+	lib/libzutil/Makefile
 	lib/libtpool/Makefile
 	lib/libunicode/Makefile
 	lib/libuutil/Makefile
@@ -118,8 +120,10 @@ AC_CONFIG_FILES([
 	cmd/dbufstat/Makefile
 	cmd/arc_summary/Makefile
 	cmd/zed/Makefile
+	cmd/zed/zed.d/Makefile
 	cmd/raidz_test/Makefile
 	cmd/zgenhostid/Makefile
+	cmd/zvol_wait/Makefile
 	contrib/Makefile
 	contrib/bash_completion.d/Makefile
 	contrib/dracut/Makefile
@@ -130,20 +134,31 @@ AC_CONFIG_FILES([
 	contrib/initramfs/scripts/Makefile
 	contrib/initramfs/scripts/local-top/Makefile
 	contrib/pyzfs/Makefile
+	contrib/pyzfs/setup.py
+	contrib/zcp/Makefile
 	module/Makefile
 	module/avl/Makefile
 	module/nvpair/Makefile
+	module/os/Makefile
+	module/os/linux/Makefile
+	module/os/linux/spl/Makefile
+	module/os/linux/zfs/Makefile
+	module/spl/Makefile
 	module/unicode/Makefile
 	module/zcommon/Makefile
 	module/zfs/Makefile
 	module/lua/Makefile
 	module/icp/Makefile
-	module/spl/Makefile
 	include/Makefile
-	include/linux/Makefile
-	include/spl/Makefile
-	include/spl/rpc/Makefile
-	include/spl/sys/Makefile
+	include/os/Makefile
+	include/os/linux/Makefile
+	include/os/linux/kernel/Makefile
+	include/os/linux/kernel/linux/Makefile
+	include/os/linux/spl/Makefile
+	include/os/linux/spl/rpc/Makefile
+	include/os/linux/spl/sys/Makefile
+	include/os/linux/zfs/Makefile
+	include/os/linux/zfs/sys/Makefile
 	include/sys/Makefile
 	include/sys/fs/Makefile
 	include/sys/fm/Makefile
@@ -168,6 +183,7 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/cmd/file_check/Makefile
 	tests/zfs-tests/cmd/file_trunc/Makefile
 	tests/zfs-tests/cmd/file_write/Makefile
+	tests/zfs-tests/cmd/get_diff/Makefile
 	tests/zfs-tests/cmd/largest_file/Makefile
 	tests/zfs-tests/cmd/libzfs_input_check/Makefile
 	tests/zfs-tests/cmd/mkbusy/Makefile
@@ -185,6 +201,7 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/cmd/rm_lnkcnt_zero_file/Makefile
 	tests/zfs-tests/cmd/threadsappend/Makefile
 	tests/zfs-tests/cmd/xattrtest/Makefile
+	tests/zfs-tests/cmd/stride_dd/Makefile
 	tests/zfs-tests/include/Makefile
 	tests/zfs-tests/tests/Makefile
 	tests/zfs-tests/tests/functional/Makefile
@@ -220,7 +237,6 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/tests/functional/cli_root/zfs_promote/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zfs_property/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zfs_receive/Makefile
-	tests/zfs-tests/tests/functional/cli_root/zfs_remap/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zfs_rename/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zfs_reservation/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zfs_rollback/Makefile
@@ -246,25 +262,31 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/tests/functional/cli_root/zpool_history/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_import/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_import/blockfiles/Makefile
+	tests/zfs-tests/tests/functional/cli_root/zpool_initialize/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_labelclear/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_offline/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_online/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_remove/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_reopen/Makefile
+	tests/zfs-tests/tests/functional/cli_root/zpool_resilver/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_replace/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_scrub/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_set/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_split/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_status/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_sync/Makefile
+	tests/zfs-tests/tests/functional/cli_root/zpool_trim/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_upgrade/Makefile
 	tests/zfs-tests/tests/functional/cli_root/zpool_upgrade/blockfiles/Makefile
+	tests/zfs-tests/tests/functional/cli_root/zpool_wait/Makefile
+	tests/zfs-tests/tests/functional/cli_root/zpool_wait/scan/Makefile
 	tests/zfs-tests/tests/functional/cli_user/Makefile
 	tests/zfs-tests/tests/functional/cli_user/misc/Makefile
 	tests/zfs-tests/tests/functional/cli_user/zfs_list/Makefile
 	tests/zfs-tests/tests/functional/cli_user/zpool_iostat/Makefile
 	tests/zfs-tests/tests/functional/cli_user/zpool_list/Makefile
+	tests/zfs-tests/tests/functional/cli_user/zpool_status/Makefile
 	tests/zfs-tests/tests/functional/compression/Makefile
 	tests/zfs-tests/tests/functional/cp_files/Makefile
 	tests/zfs-tests/tests/functional/ctime/Makefile
@@ -287,6 +309,8 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/tests/functional/largest_pool/Makefile
 	tests/zfs-tests/tests/functional/link_count/Makefile
 	tests/zfs-tests/tests/functional/libzfs/Makefile
+	tests/zfs-tests/tests/functional/limits/Makefile
+	tests/zfs-tests/tests/functional/log_spacemap/Makefile
 	tests/zfs-tests/tests/functional/migration/Makefile
 	tests/zfs-tests/tests/functional/mmap/Makefile
 	tests/zfs-tests/tests/functional/mmp/Makefile
@@ -305,6 +329,7 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/tests/functional/pyzfs/Makefile
 	tests/zfs-tests/tests/functional/quota/Makefile
 	tests/zfs-tests/tests/functional/raidz/Makefile
+	tests/zfs-tests/tests/functional/redacted_send/Makefile
 	tests/zfs-tests/tests/functional/redundancy/Makefile
 	tests/zfs-tests/tests/functional/refquota/Makefile
 	tests/zfs-tests/tests/functional/refreserv/Makefile
@@ -319,9 +344,11 @@ AC_CONFIG_FILES([
 	tests/zfs-tests/tests/functional/snapshot/Makefile
 	tests/zfs-tests/tests/functional/snapused/Makefile
 	tests/zfs-tests/tests/functional/sparse/Makefile
+	tests/zfs-tests/tests/functional/suid/Makefile
 	tests/zfs-tests/tests/functional/alloc_class/Makefile
 	tests/zfs-tests/tests/functional/threadsappend/Makefile
 	tests/zfs-tests/tests/functional/tmpfile/Makefile
+	tests/zfs-tests/tests/functional/trim/Makefile
 	tests/zfs-tests/tests/functional/truncate/Makefile
 	tests/zfs-tests/tests/functional/user_namespace/Makefile
 	tests/zfs-tests/tests/functional/userquota/Makefile

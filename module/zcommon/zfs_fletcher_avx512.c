@@ -24,11 +24,11 @@
 
 #if defined(__x86_64) && defined(HAVE_AVX512F)
 
-#include <linux/simd_x86.h>
 #include <sys/byteorder.h>
 #include <sys/frame.h>
 #include <sys/spa_checksum.h>
 #include <sys/strings.h>
+#include <sys/simd.h>
 #include <zfs_fletcher.h>
 
 #define	__asm __asm__ __volatile__
@@ -157,7 +157,7 @@ STACK_FRAME_NON_STANDARD(fletcher_4_avx512f_byteswap);
 static boolean_t
 fletcher_4_avx512f_valid(void)
 {
-	return (zfs_avx512f_available());
+	return (kfpu_allowed() && zfs_avx512f_available());
 }
 
 const fletcher_4_ops_t fletcher_4_avx512f_ops = {

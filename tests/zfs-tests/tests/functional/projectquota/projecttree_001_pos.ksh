@@ -56,6 +56,16 @@ if ! lsattr -pd > /dev/null 2>&1; then
 	log_unsupported "Current e2fsprogs does not support set/show project ID"
 fi
 
+#
+# e2fsprogs-1.44.4 incorrectly reports verity 'V' bit when the project 'P'
+# bit is set.  Skip this test when 1.44.4 is installed to prevent failures.
+#
+# https://github.com/tytso/e2fsprogs/commit/7e5a95e3d
+#
+if lsattr -V 2>&1 | grep "lsattr 1.44.4"; then
+	log_unsupported "Current e2fsprogs incorrectly reports 'V' verity bit"
+fi
+
 log_onexit cleanup
 
 log_assert "Check 'zfs project' is compatible with chattr/lsattr"
@@ -69,30 +79,30 @@ log_must chattr -p $PRJID1 $PRJDIR/a3
 log_must eval "zfs project $PRJDIR/a3 | grep '$PRJID1 \-'"
 
 log_must zfs project -p $PRJID2 $PRJDIR/a3
-log_must eval "lsattr -p $PRJDIR/a3 | grep $PRJID2 | grep '\- '"
+log_must eval "lsattr -p $PRJDIR/a3 | grep $PRJID2 | grep -v '\-P[- ]* '"
 
 log_must chattr -p $PRJID1 $PRJDIR/a1
 log_must eval "zfs project -d $PRJDIR/a1 | grep '$PRJID1 \-'"
 
 log_must zfs project -p $PRJID2 $PRJDIR/a1
-log_must eval "lsattr -pd $PRJDIR/a1 | grep $PRJID2 | grep '\- '"
+log_must eval "lsattr -pd $PRJDIR/a1 | grep $PRJID2 | grep -v '\-P[- ]* '"
 
 log_must chattr +P $PRJDIR/a2
 log_must eval "zfs project -d $PRJDIR/a2 | grep '0 P'"
 
 log_must zfs project -s $PRJDIR/a2
-log_must eval "lsattr -pd $PRJDIR/a2 | grep 0 | grep '\-P '"
+log_must eval "lsattr -pd $PRJDIR/a2 | grep 0 | grep '\-P[- ]* '"
 
 log_must chattr +P -p $PRJID1 $PRJDIR/a1
 log_must eval "zfs project -d $PRJDIR/a1 | grep '$PRJID1 P'"
 
 log_must zfs project -s -p $PRJID2 $PRJDIR/a2
-log_must eval "lsattr -pd $PRJDIR/a2 | grep $PRJID2 | grep '\-P '"
+log_must eval "lsattr -pd $PRJDIR/a2 | grep $PRJID2 | grep '\-P[- ]* '"
 
 log_must chattr -P $PRJDIR/a1
 log_must eval "zfs project -d $PRJDIR/a1 | grep '$PRJID1 \-'"
 
 log_must zfs project -C -k $PRJDIR/a2
-log_must eval "lsattr -pd $PRJDIR/a2 | grep $PRJID2 | grep '\- '"
+log_must eval "lsattr -pd $PRJDIR/a2 | grep $PRJID2 | grep -v '\-P[- ]* '"
 
 log_pass "Check 'zfs project' is compatible with chattr/lsattr"

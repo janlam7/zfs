@@ -39,20 +39,10 @@
 #	1. Setting properties for all the filesystem and volumes randomly
 #	2. Backup all the data from POOL by send -R
 #	3. Restore all the data in POOL2
-#	4. Verify all the perperties in two pools are same
+#	4. Verify all the properties in the two pools are the same
 #
 
 verify_runnable "global"
-
-function rand_set_prop
-{
-	typeset dtst=$1
-	typeset prop=$2
-	shift 2
-	typeset value=$(random_get $@)
-
-	log_must eval "zfs set $prop='$value' $dtst"
-}
 
 function edited_prop
 {

@@ -157,9 +157,12 @@ AC_DEFUN([ZFS_AC_CONFIG_ALWAYS], [
 	ZFS_AC_CONFIG_ALWAYS_CC_NO_BOOL_COMPARE
 	ZFS_AC_CONFIG_ALWAYS_CC_FRAME_LARGER_THAN
 	ZFS_AC_CONFIG_ALWAYS_CC_NO_FORMAT_TRUNCATION
+	ZFS_AC_CONFIG_ALWAYS_CC_NO_OMIT_FRAME_POINTER
 	ZFS_AC_CONFIG_ALWAYS_CC_ASAN
 	ZFS_AC_CONFIG_ALWAYS_TOOLCHAIN_SIMD
+	ZFS_AC_CONFIG_ALWAYS_SYSTEM
 	ZFS_AC_CONFIG_ALWAYS_ARCH
+	ZFS_AC_CONFIG_ALWAYS_PYTHON
 	ZFS_AC_CONFIG_ALWAYS_PYZFS
 ])
 
@@ -264,10 +267,13 @@ AC_DEFUN([ZFS_AC_RPM], [
 	RPM_DEFINE_UTIL+=' $(DEFINE_INITRAMFS)'
 	RPM_DEFINE_UTIL+=' $(DEFINE_SYSTEMD)'
 	RPM_DEFINE_UTIL+=' $(DEFINE_PYZFS)'
+	RPM_DEFINE_UTIL+=' $(DEFINE_PYTHON_VERSION)'
+	RPM_DEFINE_UTIL+=' $(DEFINE_PYTHON_PKG_VERSION)'
 
-	dnl # Override default lib directory on Debian/Ubuntu systems.  The provided
-	dnl # /usr/lib/rpm/platform/<arch>/macros files do not specify the correct
-	dnl # path for multiarch systems as described by the packaging guidelines.
+	dnl # Override default lib directory on Debian/Ubuntu systems.  The
+	dnl # provided /usr/lib/rpm/platform/<arch>/macros files do not
+	dnl # specify the correct path for multiarch systems as described
+	dnl # by the packaging guidelines.
 	dnl #
 	dnl # https://wiki.ubuntu.com/MultiarchSpec
 	dnl # https://wiki.debian.org/Multiarch/Implementation
@@ -456,7 +462,7 @@ AC_DEFUN([ZFS_AC_DEFAULT_PACKAGE], [
 	AC_MSG_RESULT([$DEFAULT_INIT_SCRIPT])
 	AC_SUBST(DEFAULT_INIT_SCRIPT)
 
-	AC_MSG_CHECKING([default init config direectory])
+	AC_MSG_CHECKING([default init config directory])
 	case "$VENDOR" in
 		alpine)     DEFAULT_INITCONF_DIR=/etc/conf.d    ;;
 		gentoo)     DEFAULT_INITCONF_DIR=/etc/conf.d    ;;

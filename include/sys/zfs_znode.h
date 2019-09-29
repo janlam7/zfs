@@ -192,10 +192,15 @@ typedef struct znode {
 	krwlock_t	z_name_lock;	/* "master" lock for dirent locks */
 	zfs_dirlock_t	*z_dirlocks;	/* directory entry lock list */
 	rangelock_t	z_rangelock;	/* file range locks */
-	uint8_t		z_unlinked;	/* file has been unlinked */
-	uint8_t		z_atime_dirty;	/* atime needs to be synced */
-	uint8_t		z_zn_prefetch;	/* Prefetch znodes? */
-	uint8_t		z_moved;	/* Has this znode been moved? */
+	boolean_t	z_unlinked;	/* file has been unlinked */
+	boolean_t	z_atime_dirty;	/* atime needs to be synced */
+	boolean_t	z_zn_prefetch;	/* Prefetch znodes? */
+	boolean_t	z_moved;	/* Has this znode been moved? */
+	boolean_t	z_is_sa;	/* are we native sa? */
+	boolean_t	z_is_mapped;	/* are we mmap'ed */
+	boolean_t	z_is_ctldir;	/* are we .zfs entry */
+	boolean_t	z_is_stale;	/* are we stale due to rollback? */
+	boolean_t	z_suspended;	/* extra ref from a suspend? */
 	uint_t		z_blksz;	/* block size in bytes */
 	uint_t		z_seq;		/* modification sequence number */
 	uint64_t	z_mapcnt;	/* number of pages mapped to file */
@@ -212,10 +217,6 @@ typedef struct znode {
 	uint64_t	z_projid;	/* project ID */
 	list_node_t	z_link_node;	/* all znodes in fs link */
 	sa_handle_t	*z_sa_hdl;	/* handle to sa data */
-	boolean_t	z_is_sa;	/* are we native sa? */
-	boolean_t	z_is_mapped;	/* are we mmap'ed */
-	boolean_t	z_is_ctldir;	/* are we .zfs entry */
-	boolean_t	z_is_stale;	/* are we stale due to rollback? */
 	struct inode	z_inode;	/* generic vfs inode */
 } znode_t;
 
@@ -363,6 +364,7 @@ extern int	zfs_inode_alloc(struct super_block *, struct inode **ip);
 extern void	zfs_inode_destroy(struct inode *);
 extern void	zfs_inode_update(znode_t *);
 extern void	zfs_mark_inode_dirty(struct inode *);
+extern boolean_t zfs_relatime_need_update(const struct inode *);
 
 extern void zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name, vsecattr_t *, zfs_fuid_info_t *,
@@ -370,7 +372,7 @@ extern void zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 extern int zfs_log_create_txtype(zil_create_t, vsecattr_t *vsecp,
     vattr_t *vap);
 extern void zfs_log_remove(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
-    znode_t *dzp, char *name, uint64_t foid);
+    znode_t *dzp, char *name, uint64_t foid, boolean_t unlinked);
 #define	ZFS_NO_OBJECT	0	/* no object id */
 extern void zfs_log_link(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
     znode_t *dzp, znode_t *zp, char *name);
@@ -389,7 +391,6 @@ extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
     vsecattr_t *vsecp, zfs_fuid_info_t *fuidp);
 extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap, dmu_tx_t *tx);
 extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
-extern int zfs_create_share_dir(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 
 #if defined(HAVE_UIO_RW)
 extern caddr_t zfs_map_page(page_t *, enum seg_rw);

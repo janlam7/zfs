@@ -73,6 +73,7 @@
 #include <fcntl.h>
 #include <libnvpair.h>
 #include <libzfs.h>
+#include <libzutil.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -156,7 +157,7 @@ zfs_unavail_pool(zpool_handle_t *zhp, void *data)
  * 1. physical match with no fs, no partition
  *	tag it top, partition disk
  *
- * 2. physical match again, see partion and tag
+ * 2. physical match again, see partition and tag
  *
  */
 
@@ -427,8 +428,16 @@ zfs_process_add(zpool_handle_t *zhp, nvlist_t *vdev, boolean_t labeled)
 	nvlist_free(newvd);
 
 	/*
-	 * auto replace a leaf disk at same physical location
+	 * Wait for udev to verify the links exist, then auto-replace
+	 * the leaf disk at same physical location.
 	 */
+	if (zpool_label_disk_wait(path, 3000) != 0) {
+		zed_log_msg(LOG_WARNING, "zfs_mod: expected replacement "
+		    "disk %s is missing", path);
+		nvlist_free(nvroot);
+		return;
+	}
+
 	ret = zpool_vdev_attach(zhp, fullpath, path, nvroot, B_TRUE);
 
 	zed_log_msg(LOG_INFO, "  zpool_vdev_replace: %s with %s (%s)",
@@ -467,7 +476,20 @@ zfs_iter_vdev(zpool_handle_t *zhp, nvlist_t *nvl, void *data)
 	    &child, &children) == 0) {
 		for (c = 0; c < children; c++)
 			zfs_iter_vdev(zhp, child[c], data);
-		return;
+	}
+
+	/*
+	 * Iterate over any spares and cache devices
+	 */
+	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_SPARES,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++)
+			zfs_iter_vdev(zhp, child[c], data);
+	}
+	if (nvlist_lookup_nvlist_array(nvl, ZPOOL_CONFIG_L2CACHE,
+	    &child, &children) == 0) {
+		for (c = 0; c < children; c++)
+			zfs_iter_vdev(zhp, child[c], data);
 	}
 
 	/* once a vdev was matched and processed there is nothing left to do */
@@ -652,7 +674,7 @@ zfs_deliver_add(nvlist_t *nvl, boolean_t is_lofi)
 	    devid, devpath ? devpath : "NULL", is_slice);
 
 	/*
-	 * Iterate over all vdevs looking for a match in the folllowing order:
+	 * Iterate over all vdevs looking for a match in the following order:
 	 * 1. ZPOOL_CONFIG_DEVID (identifies the unique disk)
 	 * 2. ZPOOL_CONFIG_PHYS_PATH (identifies disk physical location).
 	 *
@@ -870,7 +892,7 @@ zfs_enum_pools(void *arg)
  *
  * sent messages from zevents or udev monitor
  *
- * For now, each agent has it's own libzfs instance
+ * For now, each agent has its own libzfs instance
  */
 int
 zfs_slm_init()

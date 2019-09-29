@@ -15,6 +15,7 @@
 #
 
 . $STF_SUITE/include/libtest.shlib
+. $STF_SUITE/tests/functional/cli_root/zpool_split/zpool_split.cfg
 . $STF_SUITE/tests/functional/mmp/mmp.kshlib
 
 #
@@ -52,10 +53,10 @@ if [ -e $HOSTID_FILE ]; then
 fi
 
 typeset good_props=('comment=text' 'ashift=12' 'multihost=on'
-    'listsnapshots=on' 'autoexpand=on' 'autoreplace=on' 'dedupditto=1234'
+    'listsnapshots=on' 'autoexpand=on' 'autoreplace=on'
     'delegation=off' 'failmode=continue')
 typeset bad_props=("bootfs=$TESTPOOL2/bootfs" 'version=28' 'ashift=4'
-    'allocated=1234' 'capacity=5678' 'dedupditto=42' 'multihost=none'
+    'allocated=1234' 'capacity=5678' 'multihost=none'
     'feature@async_destroy=disabled' 'feature@xxx_fake_xxx=enabled'
     'propname=propval' 'readonly=on')
 

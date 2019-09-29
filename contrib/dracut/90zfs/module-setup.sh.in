@@ -59,6 +59,7 @@ install() {
 	dracut_install @udevdir@/vdev_id
 	dracut_install awk
 	dracut_install basename
+	dracut_install cut
 	dracut_install head
 	dracut_install @udevdir@/zvol_id
 	inst_hook cmdline 95 "${moddir}/parse-zfs.sh"
@@ -86,7 +87,7 @@ install() {
 	BB=`hostid | cut -b 3,4`
 	CC=`hostid | cut -b 5,6`
 	DD=`hostid | cut -b 7,8`
-	printf "\x${DD}\x${CC}\x${BB}\x${AA}" > "${initdir}/etc/hostid"
+	echo -ne "\\x${DD}\\x${CC}\\x${BB}\\x${AA}" > "${initdir}/etc/hostid"
 
 	if dracut_module_included "systemd"; then
 		mkdir -p "${initdir}/$systemdsystemunitdir/zfs-import.target.wants"
@@ -97,6 +98,9 @@ install() {
 				type mark_hostonly >/dev/null 2>&1 && mark_hostonly @systemdunitdir@/zfs-import-$_item.service
 			fi
 		done
+		inst "${moddir}"/zfs-env-bootfs.service "${systemdsystemunitdir}"/zfs-env-bootfs.service
+		ln -s ../zfs-env-bootfs.service "${initdir}/${systemdsystemunitdir}/zfs-import.target.wants"/zfs-env-bootfs.service
+		type mark_hostonly >/dev/null 2>&1 && mark_hostonly @systemdunitdir@/zfs-env-bootfs.service
 		dracut_install systemd-ask-password
 		dracut_install systemd-tty-ask-password-agent
 		mkdir -p "${initdir}/$systemdsystemunitdir/initrd.target.wants"

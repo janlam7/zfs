@@ -102,7 +102,6 @@ enum zio_checksum {
 #define	ZIO_CHECKSUM_VERIFY	(1 << 8)
 
 #define	ZIO_DEDUPCHECKSUM	ZIO_CHECKSUM_SHA256
-#define	ZIO_DEDUPDITTO_MIN	100
 
 /* supported encryption algorithms */
 enum zio_encrypt {
@@ -157,11 +156,6 @@ enum zio_encrypt {
 	(compress) == ZIO_COMPRESS_ZLE ||		\
 	(compress) == ZIO_COMPRESS_ON ||		\
 	(compress) == ZIO_COMPRESS_OFF)
-
-/*
- * Default Linux timeout for a sd device.
- */
-#define	ZIO_DELAY_MAX			(30 * MILLISEC)
 
 #define	ZIO_FAILURE_MODE_WAIT		0
 #define	ZIO_FAILURE_MODE_CONTINUE	1
@@ -421,6 +415,14 @@ typedef zio_t *zio_pipe_stage_t(zio_t *zio);
 #define	ZIO_REEXECUTE_NOW	0x01
 #define	ZIO_REEXECUTE_SUSPEND	0x02
 
+/*
+ * The io_trim flags are used to specify the type of TRIM to perform.  They
+ * only apply to ZIO_TYPE_TRIM zios are distinct from io_flags.
+ */
+enum trim_flag {
+	ZIO_TRIM_SECURE		= 1 << 0,
+};
+
 typedef struct zio_alloc_list {
 	list_t  zal_list;
 	uint64_t zal_size;
@@ -439,6 +441,7 @@ struct zio {
 	zio_prop_t	io_prop;
 	zio_type_t	io_type;
 	enum zio_child	io_child_type;
+	enum trim_flag	io_trim_flags;
 	int		io_cmd;
 	zio_priority_t	io_priority;
 	uint8_t		io_reexecute;
@@ -554,6 +557,10 @@ extern zio_t *zio_claim(zio_t *pio, spa_t *spa, uint64_t txg,
 extern zio_t *zio_ioctl(zio_t *pio, spa_t *spa, vdev_t *vd, int cmd,
     zio_done_func_t *done, void *private, enum zio_flag flags);
 
+extern zio_t *zio_trim(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
+    zio_done_func_t *done, void *private, zio_priority_t priority,
+    enum zio_flag flags, enum trim_flag trim_flags);
+
 extern zio_t *zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset,
     uint64_t size, struct abd *data, int checksum,
     zio_done_func_t *done, void *private, zio_priority_t priority,
@@ -664,7 +671,7 @@ extern void zfs_ereport_finish_checksum(zio_cksum_report_t *report,
 extern void zfs_ereport_free_checksum(zio_cksum_report_t *report);
 
 /* If we have the good data in hand, this function can be used */
-extern void zfs_ereport_post_checksum(spa_t *spa, vdev_t *vd,
+extern int zfs_ereport_post_checksum(spa_t *spa, vdev_t *vd,
     const zbookmark_phys_t *zb, struct zio *zio, uint64_t offset,
     uint64_t length, const abd_t *good_data, const abd_t *bad_data,
     struct zio_bad_cksum *info);

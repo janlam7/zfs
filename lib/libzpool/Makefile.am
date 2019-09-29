@@ -4,6 +4,7 @@ VPATH = \
 	$(top_srcdir)/module/zfs \
 	$(top_srcdir)/module/zcommon \
 	$(top_srcdir)/module/lua \
+	$(top_srcdir)/module/os/linux/zfs \
 	$(top_srcdir)/lib/libzpool
 
 # Suppress unused but set variable warnings often due to ASSERTs
@@ -59,6 +60,7 @@ KERNEL_C = \
 	dmu_object.c \
 	dmu_objset.c \
 	dmu_recv.c \
+	dmu_redact.c \
 	dmu_send.c \
 	dmu_traverse.c \
 	dmu_tx.c \
@@ -86,6 +88,7 @@ KERNEL_C = \
 	metaslab.c \
 	mmp.c \
 	multilist.c \
+	objlist.c \
 	pathname.c \
 	range_tree.c \
 	refcount.c \
@@ -99,6 +102,7 @@ KERNEL_C = \
 	spa_config.c \
 	spa_errlog.c \
 	spa_history.c \
+	spa_log_spacemap.c \
 	spa_misc.c \
 	spa_stats.c \
 	space_map.c \
@@ -113,6 +117,7 @@ KERNEL_C = \
 	vdev_indirect_births.c \
 	vdev_indirect.c \
 	vdev_indirect_mapping.c \
+	vdev_initialize.c \
 	vdev_label.c \
 	vdev_mirror.c \
 	vdev_missing.c \
@@ -129,6 +134,7 @@ KERNEL_C = \
 	vdev_raidz_math_ssse3.c \
 	vdev_removal.c \
 	vdev_root.c \
+	vdev_trim.c \
 	zap.c \
 	zap_leaf.c \
 	zap_micro.c \
@@ -188,11 +194,10 @@ nodist_libzpool_la_SOURCES = \
 	$(LUA_C)
 
 libzpool_la_LIBADD = \
-	$(top_builddir)/lib/libavl/libavl.la \
 	$(top_builddir)/lib/libicp/libicp.la \
 	$(top_builddir)/lib/libnvpair/libnvpair.la \
-	$(top_builddir)/lib/libspl/libspl.la \
-	$(top_builddir)/lib/libunicode/libunicode.la
+	$(top_builddir)/lib/libunicode/libunicode.la \
+	$(top_builddir)/lib/libzutil/libzutil.la
 
 libzpool_la_LIBADD += $(ZLIB) -ldl
 libzpool_la_LDFLAGS = -pthread -version-info 2:0:0

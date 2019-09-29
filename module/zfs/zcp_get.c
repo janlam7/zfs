@@ -411,16 +411,23 @@ get_special_prop(lua_State *state, dsl_dataset_t *ds, const char *dsname,
 	case ZFS_PROP_INCONSISTENT:
 		numval = dsl_get_inconsistent(ds);
 		break;
+	case ZFS_PROP_IVSET_GUID:
+		if (dsl_dataset_is_zapified(ds)) {
+			error = zap_lookup(ds->ds_dir->dd_pool->dp_meta_objset,
+			    ds->ds_object, DS_FIELD_IVSET_GUID,
+			    sizeof (numval), 1, &numval);
+		} else {
+			error = ENOENT;
+		}
+		break;
 	case ZFS_PROP_RECEIVE_RESUME_TOKEN: {
 		char *token = get_receive_resume_stats_impl(ds);
 
-		VERIFY3U(strlcpy(strval, token, ZAP_MAXVALUELEN),
-		    <, ZAP_MAXVALUELEN);
+		(void) strlcpy(strval, token, ZAP_MAXVALUELEN);
 		if (strcmp(strval, "") == 0) {
 			char *childval = get_child_receive_stats(ds);
 
-			VERIFY3U(strlcpy(strval, childval, ZAP_MAXVALUELEN),
-			    <, ZAP_MAXVALUELEN);
+			(void) strlcpy(strval, childval, ZAP_MAXVALUELEN);
 			if (strcmp(strval, "") == 0)
 				error = ENOENT;
 
@@ -540,7 +547,7 @@ get_zap_prop(lua_State *state, dsl_dataset_t *ds, zfs_prop_t zfs_prop)
 		error = dsl_prop_get_ds(ds, prop_name, sizeof (numval),
 		    1, &numval, setpoint);
 
-		/* Fill in temorary value for prop, if applicable */
+		/* Fill in temporary value for prop, if applicable */
 		(void) get_temporary_prop(ds, zfs_prop, &numval, setpoint);
 
 		/* Push value to lua stack */
@@ -671,7 +678,7 @@ parse_userquota_prop(const char *prop_name, zfs_userquota_prop_t *type,
 	if (strncmp(cp, "S-1-", 4) == 0) {
 		/*
 		 * It's a numeric SID (eg "S-1-234-567-89") and we want to
-		 * seperate the domain id and the rid
+		 * separate the domain id and the rid
 		 */
 		int domain_len = strrchr(cp, '-') - cp;
 		domain_val = kmem_alloc(domain_len + 1, KM_SLEEP);

@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  * Copyright 2016 RackTop Systems.
  * Copyright (c) 2017, Intel Corporation.
  */
@@ -101,11 +101,12 @@ typedef enum drr_headertype {
 /* flag #18 is reserved for a Delphix feature */
 #define	DMU_BACKUP_FEATURE_LARGE_BLOCKS		(1 << 19)
 #define	DMU_BACKUP_FEATURE_RESUMING		(1 << 20)
-/* flag #21 is reserved for a Delphix feature */
+#define	DMU_BACKUP_FEATURE_REDACTED		(1 << 21)
 #define	DMU_BACKUP_FEATURE_COMPRESSED		(1 << 22)
 #define	DMU_BACKUP_FEATURE_LARGE_DNODE		(1 << 23)
 #define	DMU_BACKUP_FEATURE_RAW			(1 << 24)
 /* flag #25 is reserved for the ZSTD compression feature */
+#define	DMU_BACKUP_FEATURE_HOLDS		(1 << 26)
 
 /*
  * Mask of all supported backup features
@@ -115,7 +116,8 @@ typedef enum drr_headertype {
     DMU_BACKUP_FEATURE_EMBED_DATA | DMU_BACKUP_FEATURE_LZ4 | \
     DMU_BACKUP_FEATURE_RESUMING | DMU_BACKUP_FEATURE_LARGE_BLOCKS | \
     DMU_BACKUP_FEATURE_COMPRESSED | DMU_BACKUP_FEATURE_LARGE_DNODE | \
-    DMU_BACKUP_FEATURE_RAW)
+    DMU_BACKUP_FEATURE_RAW | DMU_BACKUP_FEATURE_HOLDS | \
+	DMU_BACKUP_FEATURE_REDACTED)
 
 /* Are all features in the given flag word currently supported? */
 #define	DMU_STREAM_SUPPORTED(x)	(!((x) & ~DMU_BACKUP_FEATURE_MASK))
@@ -130,7 +132,7 @@ typedef enum dmu_send_resume_token_version {
  *
  *	64	56	48	40	32	24	16	8	0
  *	+-------+-------+-------+-------+-------+-------+-------+-------+
- *  	|		reserved	|        feature-flags	    |C|S|
+ *	|		reserved	|        feature-flags	    |C|S|
  *	+-------+-------+-------+-------+-------+-------+-------+-------+
  *
  * The low order two bits indicate the header type: SUBSTREAM (0x1)
@@ -159,16 +161,38 @@ typedef enum dmu_send_resume_token_version {
  * cannot necessarily be received as a clone correctly.
  */
 #define	DRR_FLAG_FREERECORDS	(1<<2)
+/*
+ * When DRR_FLAG_SPILL_BLOCK is set it indicates the DRR_OBJECT_SPILL
+ * and DRR_SPILL_UNMODIFIED flags are meaningful in the send stream.
+ *
+ * When DRR_FLAG_SPILL_BLOCK is set, DRR_OBJECT records will have
+ * DRR_OBJECT_SPILL set if and only if they should have a spill block
+ * (either an existing one, or a new one in the send stream).  When clear
+ * the object does not have a spill block and any existing spill block
+ * should be freed.
+ *
+ * Similarly, when DRR_FLAG_SPILL_BLOCK is set, DRR_SPILL records will
+ * have DRR_SPILL_UNMODIFIED set if and only if they were included for
+ * backward compatibility purposes, and can be safely ignored by new versions
+ * of zfs receive.  Previous versions of ZFS which do not understand the
+ * DRR_FLAG_SPILL_BLOCK will process this record and recreate any missing
+ * spill blocks.
+ */
+#define	DRR_FLAG_SPILL_BLOCK	(1<<3)
 
 /*
  * flags in the drr_flags field in the DRR_WRITE, DRR_SPILL, DRR_OBJECT,
  * DRR_WRITE_BYREF, and DRR_OBJECT_RANGE blocks
  */
-#define	DRR_CHECKSUM_DEDUP	(1<<0) /* not used for DRR_SPILL blocks */
+#define	DRR_CHECKSUM_DEDUP	(1<<0) /* not used for SPILL records */
 #define	DRR_RAW_BYTESWAP	(1<<1)
+#define	DRR_OBJECT_SPILL	(1<<2) /* OBJECT record has a spill block */
+#define	DRR_SPILL_UNMODIFIED	(1<<2) /* SPILL record for unmodified block */
 
 #define	DRR_IS_DEDUP_CAPABLE(flags)	((flags) & DRR_CHECKSUM_DEDUP)
 #define	DRR_IS_RAW_BYTESWAPPED(flags)	((flags) & DRR_RAW_BYTESWAP)
+#define	DRR_OBJECT_HAS_SPILL(flags)	((flags) & DRR_OBJECT_SPILL)
+#define	DRR_SPILL_IS_UNMODIFIED(flags)	((flags) & DRR_SPILL_UNMODIFIED)
 
 /* deal with compressed drr_write replay records */
 #define	DRR_WRITE_COMPRESSED(drrw)	((drrw)->drr_compressiontype != 0)
@@ -189,7 +213,7 @@ typedef struct dmu_replay_record {
 	enum {
 		DRR_BEGIN, DRR_OBJECT, DRR_FREEOBJECTS,
 		DRR_WRITE, DRR_FREE, DRR_END, DRR_WRITE_BYREF,
-		DRR_SPILL, DRR_WRITE_EMBEDDED, DRR_OBJECT_RANGE,
+		DRR_SPILL, DRR_WRITE_EMBEDDED, DRR_OBJECT_RANGE, DRR_REDACT,
 		DRR_NUMTYPES
 	} drr_type;
 	uint32_t drr_payloadlen;
@@ -314,6 +338,12 @@ typedef struct dmu_replay_record {
 			uint8_t drr_flags;
 			uint8_t drr_pad[3];
 		} drr_object_range;
+		struct drr_redact {
+			uint64_t drr_object;
+			uint64_t drr_offset;
+			uint64_t drr_length;
+			uint64_t drr_toguid;
+		} drr_redact;
 
 		/*
 		 * Nore: drr_checksum is overlaid with all record types
@@ -366,12 +396,13 @@ typedef struct zinject_record {
 	uint64_t	zi_timer;
 	uint64_t	zi_nlanes;
 	uint32_t	zi_cmd;
-	uint32_t	zi_pad;
+	uint32_t	zi_dvas;
 } zinject_record_t;
 
 #define	ZINJECT_NULL		0x1
 #define	ZINJECT_FLUSH_ARC	0x2
 #define	ZINJECT_UNLOAD_SPA	0x4
+#define	ZINJECT_CALC_RANGE	0x8
 
 #define	ZEVENT_NONE		0x0
 #define	ZEVENT_NONBLOCK		0x1
@@ -383,6 +414,8 @@ typedef struct zinject_record {
 /* scaled frequency ranges */
 #define	ZI_PERCENTAGE_MIN	4294UL
 #define	ZI_PERCENTAGE_MAX	UINT32_MAX
+
+#define	ZI_NO_DVA		(-1)
 
 typedef enum zinject_type {
 	ZINJECT_UNINITIALIZED,
@@ -515,6 +548,9 @@ typedef struct zfsdev_state {
 extern void *zfsdev_get_state(minor_t minor, enum zfsdev_state_type which);
 extern int zfsdev_getminor(struct file *filp, minor_t *minorp);
 extern minor_t zfsdev_minor_alloc(void);
+
+extern uint_t zfs_fsyncer_key;
+extern uint_t zfs_allow_log_key;
 
 #endif	/* _KERNEL */
 

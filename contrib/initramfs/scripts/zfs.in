@@ -16,6 +16,20 @@ ZPOOL="@sbindir@/zpool"
 ZPOOL_CACHE="@sysconfdir@/zfs/zpool.cache"
 export ZFS ZPOOL ZPOOL_CACHE
 
+
+# Start interactive shell.
+# Use debian's panic() if defined, because it allows to prevent shell access
+# by setting panic in cmdline (e.g. panic=0 or panic=15).
+# See "4.5 Disable root prompt on the initramfs" of Securing Debian Manual:
+# https://www.debian.org/doc/manuals/securing-debian-howto/ch4.en.html
+shell() {
+	if type panic > /dev/null 2>&1; then
+		panic $@
+	else
+		/bin/sh
+	fi
+}
+
 # This runs any scripts that should run before we start importing
 # pools and mounting any filesystems.
 pre_mountroot()
@@ -39,7 +53,7 @@ pre_mountroot()
 	fi
 }
 
-# If plymouth is availible, hide the splash image.
+# If plymouth is available, hide the splash image.
 disable_plymouth()
 {
 	if [ -x /bin/plymouth ] && /bin/plymouth --ping
@@ -64,7 +78,7 @@ find_rootfs()
 {
 	local pool="$1"
 
-	# If 'POOL_IMPORTED' isn't set, no pool imported and therefor
+	# If 'POOL_IMPORTED' isn't set, no pool imported and therefore
 	# we won't be able to find a root fs.
 	[ -z "${POOL_IMPORTED}" ] && return 1
 
@@ -108,7 +122,7 @@ find_pools()
 	echo "${pools%%;}" # Return without the last ';'.
 }
 
-# Get a list of all availible pools
+# Get a list of all available pools
 get_pools()
 {
 	local available_pools npools
@@ -118,10 +132,10 @@ get_pools()
 		return 0
 	fi
 
-	# Get the base list of availible pools.
+	# Get the base list of available pools.
 	available_pools=$(find_pools "$ZPOOL" import)
 
-	# Just in case - seen it happen (that a pool isn't visable/found
+	# Just in case - seen it happen (that a pool isn't visible/found
 	# with a simple "zpool import" but only when using the "-d"
 	# option or setting ZPOOL_IMPORT_PATH).
 	if [ -d "/dev/disk/by-id" ]
@@ -181,7 +195,7 @@ get_pools()
 		available_pools="$apools"
 	fi
 
-	# Return list of availible pools.
+	# Return list of available pools.
 	echo "$available_pools"
 }
 
@@ -193,7 +207,7 @@ import_pool()
 
 	# Verify that the pool isn't already imported
 	# Make as sure as we can to not require '-f' to import.
-	"${ZPOOL}" status "$pool" > /dev/null 2>&1 && return 0
+	"${ZPOOL}" get name,guid -o value -H 2>/dev/null | grep -Fxq "$pool" && return 0
 
 	# For backwards compatibility, make sure that ZPOOL_IMPORT_PATH is set
 	# to something we can use later with the real import(s). We want to
@@ -256,7 +270,7 @@ import_pool()
 			echo ""
 			echo "Failed to import pool '$pool'."
 			echo "Manually import the pool and exit."
-			/bin/sh
+			shell
 		fi
 	fi
 
@@ -379,7 +393,7 @@ mount_fs()
 		echo ""
 		echo "Failed to mount ${fs} on ${rootmnt}/${mountpoint}."
 		echo "Manually mount the filesystem and exit."
-		/bin/sh
+		shell
 	else
 		[ "$quiet" != "y" ] && zfs_log_end_msg
 	fi
@@ -387,71 +401,41 @@ mount_fs()
 	return 0
 }
 
-# Unlock a ZFS native crypted filesystem.
+# Unlock a ZFS native encrypted filesystem.
 decrypt_fs()
 {
 	local fs="$1"
+	
+	# If pool encryption is active and the zfs command understands '-o encryption'
+	if [ "$(zpool list -H -o feature@encryption $(echo "${fs}" | awk -F\/ '{print $1}'))" = 'active' ]; then
 
-	# If the 'zfs key' command isn't availible, exit right here.
-	"${ZFS}" 2>&1 | grep -q 'key -l ' || return 0
+		# Determine dataset that holds key for root dataset
+		ENCRYPTIONROOT=$(${ZFS} get -H -o value encryptionroot "${fs}")
 
-	# Check if filesystem is encrypted. If not, exit right here.
-	[ "$(get_fs_value "$fs" encryption)" != "off" ] || return 0
+		# If root dataset is encrypted...
+		if ! [ "${ENCRYPTIONROOT}" = "-" ]; then
+			TRY_COUNT=3
+			# Prompt with plymouth, if active
+			if [ -e /bin/plymouth ] && /bin/plymouth --ping 2>/dev/null; then
+				while [ $TRY_COUNT -gt 0 ]; do
+					plymouth ask-for-password --prompt "Encrypted ZFS password for ${ENCRYPTIONROOT}" | \
+						$ZFS load-key "${ENCRYPTIONROOT}" && break
+					TRY_COUNT=$((TRY_COUNT - 1))
+				done
 
-	[ "$quiet" != "y" ] && \
-	    zfs_log_begin_msg "Loading crypto wrapper key for $fs"
+			# Prompt with systemd, if active 
+			elif [ -e /run/systemd/system ]; then
+				while [ $TRY_COUNT -gt 0 ]; do
+					systemd-ask-password "Encrypted ZFS password for ${ENCRYPTIONROOT}" --no-tty | \
+						$ZFS load-key "${ENCRYPTIONROOT}" && break
+					TRY_COUNT=$((TRY_COUNT - 1))
+				done
 
-	# Just make sure that ALL crypto modules module is loaded.
-	# Simplest just to load all...
-	for mod in sun-ccm sun-gcm sun-ctr
-	do
-		[ "$quiet" != "y" ] && zfs_log_progress_msg "${mod} "
-
-		ZFS_CMD="load_module $mod"
-		ZFS_STDERR="$(${ZFS_CMD} 2>&1)"
-		ZFS_ERROR="$?"
-
-		if [ "${ZFS_ERROR}" != 0 ]
-		then
-			[ "$quiet" != "y" ] && zfs_log_failure_msg "${ZFS_ERROR}"
-
-			disable_plymouth
-			echo ""
-			echo "Command: $ZFS_CMD"
-			echo "Message: $ZFS_STDERR"
-			echo "Error: $ZFS_ERROR"
-			echo ""
-			echo "Failed to load $mod module."
-			echo "Please verify that it is availible on the initrd image"
-			echo "(without it it won't be possible to unlock the filesystem)"
-			echo "and rerun:  $ZFS_CMD"
-			/bin/sh
-		else
-			[ "$quiet" != "y" ] && zfs_log_end_msg
+			# Prompt with ZFS tty, otherwise
+			else
+				$ZFS load-key "${ENCRYPTIONROOT}"
+			fi
 		fi
-	done
-
-	# If the key isn't availible, then this will fail!
-	ZFS_CMD="${ZFS} key -l -r $fs"
-	ZFS_STDERR="$(${ZFS_CMD} 2>&1)"
-	ZFS_ERROR="$?"
-
-	if [ "${ZFS_ERROR}" != 0 ]
-	then
-		[ "$quiet" != "y" ] && zfs_log_failure_msg "${ZFS_ERROR}"
-
-		disable_plymouth
-		echo ""
-		echo "Command: $ZFS_CMD"
-		echo "Message: $ZFS_STDERR"
-		echo "Error: $ZFS_ERROR"
-		echo ""
-		echo "Failed to load zfs encryption wrapper key (s)."
-		echo "Please verify dataset property 'keysource' for datasets"
-		echo "and rerun:  $ZFS_CMD"
-		/bin/sh
-	else
-		[ "$quiet" != "y" ] && zfs_log_end_msg
 	fi
 
 	return 0
@@ -481,7 +465,7 @@ destroy_fs()
 		echo "Failed to destroy '$fs'. Please make sure that '$fs' is not available."
 		echo "Hint: Try:  zfs destroy -Rfn $fs"
 		echo "If this dryrun looks good, then remove the 'n' from '-Rfn' and try again."
-		/bin/sh
+		shell
 	else
 		[ "$quiet" != "y" ] && zfs_log_end_msg
 	fi
@@ -524,7 +508,7 @@ clone_snap()
 		echo "Failed to clone snapshot."
 		echo "Make sure that the any problems are corrected and then make sure"
 		echo "that the dataset '$destfs' exists and is bootable."
-		/bin/sh
+		shell
 	else
 		[ "$quiet" != "y" ] && zfs_log_end_msg
 	fi
@@ -553,7 +537,7 @@ rollback_snap()
 		echo "Error: $ZFS_ERROR"
 		echo ""
 		echo "Failed to rollback snapshot."
-		/bin/sh
+		shell
 	else
 		[ "$quiet" != "y" ] && zfs_log_end_msg
 	fi
@@ -622,7 +606,7 @@ setup_snapshot_booting()
 	if ! grep -qiE '(^|[^\\](\\\\)* )(rollback)=(on|yes|1)( |$)' /proc/cmdline
 	then
 		# If the destination dataset for the clone
-		# already exists, destroy it. Recursivly
+		# already exists, destroy it. Recursively
 		if [ $(get_fs_value "${rootfs}_${snapname}" type) ]; then
 			filesystems=$("${ZFS}" list -oname -tfilesystem -H \
 			    -r -Sname "${ZFS_BOOTFS}")
@@ -632,7 +616,7 @@ setup_snapshot_booting()
 		fi
 	fi
 
-	# Get all snapshots, recursivly (might need to clone /usr, /var etc
+	# Get all snapshots, recursively (might need to clone /usr, /var etc
 	# as well).
 	for s in $("${ZFS}" list -H -oname -tsnapshot -r "${rootfs}" | \
 	    grep "${snapname}")
@@ -714,7 +698,7 @@ mountroot()
 		echo ""
 		echo "Failed to load ZFS modules."
 		echo "Manually load the modules and exit."
-		/bin/sh
+		shell
 	fi
 
 	# ------------
@@ -772,6 +756,7 @@ mountroot()
 	#	root=zfs:<pool>/<dataset>	(uses this for rpool - first part, without 'zfs:')
 	#
 	# Option <dataset> could also be <snapshot>
+	# Option <pool> could also be <guid>
 
 	# ------------
 	# Support force option
@@ -858,7 +843,7 @@ mountroot()
 		# Strip 'zfs:' and 'ZFS='.
 		ZFS_BOOTFS="${ROOT#*[:=]}"
 
-		# Stip everything after the first slash.
+		# Strip everything after the first slash.
 		ZFS_RPOOL="${ZFS_BOOTFS%%/*}"
 	fi
 
@@ -886,23 +871,40 @@ mountroot()
 		echo "No pool imported. Manually import the root pool"
 		echo "at the command prompt and then exit."
 		echo "Hint: Try:  zpool import -R ${rootmnt} -N ${ZFS_RPOOL}"
-		/bin/sh
+		shell
 	fi
 
-	# Set elevator=noop on the root pool's vdevs' disks.  ZFS already
-	# does this for wholedisk vdevs (for all pools), so this is only
-	# important for partitions.
+	# In case the pool was specified as guid, resolve guid to name
+	pool="$("${ZPOOL}" get name,guid -o name,value -H | \
+	    awk -v pool="${ZFS_RPOOL}" '$2 == pool { print $1 }')"
+	if [ -n "$pool" ]; then
+		# If $ZFS_BOOTFS contains guid, replace the guid portion with $pool
+		ZFS_BOOTFS=$(echo "$ZFS_BOOTFS" | \
+			sed -e "s/$("${ZPOOL}" get guid -o value "$pool" -H)/$pool/g")
+		ZFS_RPOOL="${pool}"
+	fi
+
+	# Set the no-op scheduler on the disks containing the vdevs of
+	# the root pool. For single-queue devices, this scheduler is
+	# "noop", for multi-queue devices, it is "none".
+	# ZFS already does this for wholedisk vdevs (for all pools), so this
+	# is only important for partitions.
 	"${ZPOOL}" status -L "${ZFS_RPOOL}" 2> /dev/null |
 	    awk '/^\t / && !/(mirror|raidz)/ {
 	        dev=$1;
 	        sub(/[0-9]+$/, "", dev);
 	        print dev
 	    }' |
-	    while read i
+	while read -r i
 	do
-		if grep -sq noop /sys/block/$i/queue/scheduler
+		SCHEDULER=/sys/block/$i/queue/scheduler
+		if [ -e "${SCHEDULER}" ]
 		then
-			echo noop > "/sys/block/$i/queue/scheduler"
+			# Query to see what schedulers are available
+			case "$(cat "${SCHEDULER}")" in
+				*noop*) echo noop > "${SCHEDULER}" ;;
+				*none*) echo none > "${SCHEDULER}" ;;
+			esac
 		fi
 	done
 
@@ -929,7 +931,7 @@ mountroot()
 		echo ""
 		echo "Manually mount the root filesystem on $rootmnt and then exit."
 		echo "Hint: Try:  mount -o zfsutil -t zfs ${ZFS_RPOOL-rpool}/ROOT/system $rootmnt"
-		/bin/sh
+		shell
 	fi
 
 	# ----------------------------------------------------------------

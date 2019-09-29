@@ -50,7 +50,7 @@ function dev_checksum
 
 	log_note "Compute checksum of '$dev'"
 
-	checksum=$(md5sum $dev)
+	checksum=$(md5digest $dev)
 	if [[ $? -ne 0 ]]; then
 		log_fail "Failed to compute checksum of '$dev'"
 		return 1
@@ -90,7 +90,7 @@ function test_shared_device
 	typeset checksum2=$(dev_checksum $sharedvdev)
 
 	if [[ $checksum1 == $checksum2 ]]; then
-		log_pos "Device hasn't been modified by original pool"
+		log_pass "Device hasn't been modified by original pool"
 	else
 		log_fail "Device has been modified by original pool." \
 		    "Checksum mismatch: $checksum1 != $checksum2."

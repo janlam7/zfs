@@ -69,6 +69,7 @@
 #include <fcntl.h>
 #include <libintl.h>
 #include <libnvpair.h>
+#include <libzutil.h>
 #include <limits.h>
 #include <sys/spa.h>
 #include <scsi/scsi.h>
@@ -419,19 +420,25 @@ check_disk(const char *path, blkid_cache cache, int force,
 	char slice_path[MAXPATHLEN];
 	int err = 0;
 	int fd, i;
+	int flags = O_RDONLY|O_DIRECT;
 
 	if (!iswholedisk)
 		return (check_slice(path, cache, force, isspare));
 
-	if ((fd = open(path, O_RDONLY|O_DIRECT|O_EXCL)) < 0) {
+	/* only spares can be shared, other devices require exclusive access */
+	if (!isspare)
+		flags |= O_EXCL;
+
+	if ((fd = open(path, flags)) < 0) {
 		char *value = blkid_get_tag_value(cache, "TYPE", path);
 		(void) fprintf(stderr, gettext("%s is in use and contains "
 		    "a %s filesystem.\n"), path, value ? value : "unknown");
+		free(value);
 		return (-1);
 	}
 
 	/*
-	 * Expected to fail for non-EFI labled disks.  Just check the device
+	 * Expected to fail for non-EFI labeled disks.  Just check the device
 	 * as given and do not attempt to detect and scan partitions.
 	 */
 	err = efi_alloc_and_read(fd, &vtoc);
@@ -547,7 +554,7 @@ is_spare(nvlist_t *config, const char *path)
 	uint_t i, nspares;
 	boolean_t inuse;
 
-	if ((fd = open(path, O_RDONLY)) < 0)
+	if ((fd = open(path, O_RDONLY|O_DIRECT)) < 0)
 		return (B_FALSE);
 
 	if (zpool_in_use(g_zfs, fd, &state, &name, &inuse) != 0 ||
@@ -822,7 +829,7 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 			rep.zprl_children = 1;
 			rep.zprl_parity = 0;
 		} else {
-			uint64_t vdev_size;
+			int64_t vdev_size;
 
 			/*
 			 * This is a mirror or RAID-Z vdev.  Go through and make
@@ -852,12 +859,12 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 			 */
 			type = NULL;
 			dontreport = 0;
-			vdev_size = -1ULL;
+			vdev_size = -1LL;
 			for (c = 0; c < children; c++) {
 				nvlist_t *cnv = child[c];
 				char *path;
 				struct stat64 statbuf;
-				uint64_t size = -1ULL;
+				int64_t size = -1LL;
 				char *childtype;
 				int fd, err;
 
@@ -948,7 +955,7 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 				 * (~16MB) then report an error.
 				 */
 				if (!dontreport &&
-				    (vdev_size != -1ULL &&
+				    (vdev_size != -1LL &&
 				    (labs(size - vdev_size) >
 				    ZPOOL_FUZZ))) {
 					if (ret != NULL)
@@ -1280,7 +1287,7 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 		 * symbolic link will be removed, partition table created,
 		 * and then block until udev creates the new link.
 		 */
-		if (!is_exclusive || !is_spare(NULL, udevpath)) {
+		if (!is_exclusive && !is_spare(NULL, udevpath)) {
 			char *devnode = strrchr(devpath, '/') + 1;
 
 			ret = strncmp(udevpath, UDISK_ROOT, strlen(UDISK_ROOT));
@@ -1860,7 +1867,7 @@ make_root_vdev(zpool_handle_t *zhp, nvlist_t *props, int force, int check_rep,
 	}
 
 	/*
-	 * Validate each device to make sure that its not shared with another
+	 * Validate each device to make sure that it's not shared with another
 	 * subsystem.  We do this even if 'force' is set, because there are some
 	 * uses (such as a dedicated dump device) that even '-f' cannot
 	 * override.
